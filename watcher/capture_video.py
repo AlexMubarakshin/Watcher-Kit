@@ -6,7 +6,7 @@ import datetime
 import os
 import signal
 import sys
-from .config import VIDEO_DIR, LOG_DIR, CAMERA_DEVICE, DURATION, RESOLUTION, FPS
+from .config import VIDEO_DIR, LOG_DIR, CAMERA_DEVICE, DURATION, RESOLUTION, FPS, SHOW_TIMESTAMP, TIMESTAMP_POSITION, TIMESTAMP_FONT_SIZE
 from .logger import setup_logger
 from .locale import _
 
@@ -43,6 +43,45 @@ def signal_handler(signum, frame):
 # Register signal handlers
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
+
+def get_timestamp_filter():
+    """
+    Create ffmpeg filter for timestamp overlay with real-time updates
+    Создает фильтр ffmpeg для наложения времени с обновлением в реальном времени
+    """
+    if not SHOW_TIMESTAMP:
+        return []
+    
+    # Parse resolution to get width and height
+    try:
+        width, height = map(int, RESOLUTION.split('x'))
+    except:
+        width, height = 1280, 720  # Default fallback
+    
+    # Determine position coordinates
+    positions = {
+        'top-left': 'x=10:y=30',
+        'top-right': f'x={width-280}:y=30',
+        'bottom-left': f'x=10:y={height-50}',
+        'bottom-right': f'x={width-280}:y={height-50}'
+    }
+    
+    position = positions.get(TIMESTAMP_POSITION, positions['top-right'])
+    
+    # Use drawtext with localtime for real-time updates
+    # Format: 2025-07-04 21:50:15 (updates every frame)
+    filter_complex = (
+        f"drawtext="
+        f"text='%{{localtime\\:%Y-%m-%d %H\\\\\\:%M\\\\\\:%S}}'"
+        f":fontcolor=white"
+        f":fontsize={TIMESTAMP_FONT_SIZE}"
+        f":box=1"
+        f":boxcolor=black@0.5"
+        f":boxborderw=3"
+        f":{position}"
+    )
+    
+    return ["-vf", filter_complex]
 
 def get_preferred_camera():
     """
@@ -127,6 +166,7 @@ def capture():
     else:
         camera_device = CAMERA_DEVICE
 
+    # Base ffmpeg command
     cmd = [
         "ffmpeg",
         "-f", "avfoundation",
@@ -138,9 +178,16 @@ def capture():
         "-preset", "ultrafast",
         "-movflags", "+faststart",  # Improve file compatibility
         "-avoid_negative_ts", "make_zero",  # Handle timestamp issues
-        "-y",
-        output_path
     ]
+    
+    # Add timestamp filter if enabled
+    timestamp_filter = get_timestamp_filter()
+    if timestamp_filter:
+        cmd.extend(timestamp_filter)
+        logger.info(f"📅 Adding timestamp overlay: {TIMESTAMP_POSITION}, size {TIMESTAMP_FONT_SIZE}px")
+    
+    # Add output file and overwrite flag
+    cmd.extend(["-y", output_path])
 
     try:
         logger.info(f"🎬 Starting video capture: {output_path}")
@@ -157,7 +204,7 @@ def capture():
         stdout, _ = current_process.communicate()
         
         if current_process.returncode == 0:
-            logger.info(_("capture_completed", output_path))
+            logger.info(f"✅ Video capture completed: {output_path}")
             
             # Verify the created file is valid
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
@@ -180,7 +227,7 @@ def capture():
         if current_process and current_process.poll() is None:
             signal_handler(signal.SIGINT, None)
     except Exception as e:
-        logger.exception(_("capture_failed", str(e)))
+        logger.exception(f"❌ Video capture failed: {str(e)}")
     finally:
         current_process = None
 
