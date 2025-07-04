@@ -1,0 +1,20 @@
+# Виртуальные окружения
+.venv/
+venv/
+
+# Python артефакты
+__pycache__/
+*.pyc
+watcher.egg-info/
+
+# Логи и данные
+*.log
+logs/
+videos/
+merged/
+
+# Конфигурация (секреты)
+.env
+
+# macOS
+.DS_Store
