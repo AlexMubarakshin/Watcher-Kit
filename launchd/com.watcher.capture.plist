@@ -12,8 +12,11 @@
     <key>PATH</key>
     <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
   </dict>
-  <key>StartInterval</key>
-  <integer>60</integer>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Second</key>
+    <integer>0</integer>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>StandardOutPath</key>
