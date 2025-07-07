@@ -19,7 +19,12 @@ The Watcher system includes an AI-powered person detection feature that runs **i
    ./install_person_detection.sh
    ```
 
-2. **Test the System**:
+2. **Download YOLO Model** (if automatic download fails):
+   ```bash
+   ./download_yolo_model.sh
+   ```
+
+3. **Test the System**:
    ```bash
    python test_person_detection.py
    ```
@@ -111,6 +116,17 @@ python test_person_detection.py
 ### Too Many Alerts
 - Increase cooldown: `PERSON_DETECT_COOLDOWN=30`
 - Increase confidence: `PERSON_DETECT_CONFIDENCE=0.7`
+
+## Installation Troubleshooting
+
+If you encounter YOLO model download errors, see [YOLO_TROUBLESHOOTING.md](YOLO_TROUBLESHOOTING.md) for detailed solutions.
+
+Common issues:
+- Network connectivity problems
+- Corporate firewall blocking downloads
+- GitHub rate limiting
+
+Quick fix: Run `./download_yolo_model.sh` to download manually.
 
 ## Integration Benefits
 

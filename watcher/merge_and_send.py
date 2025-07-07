@@ -302,6 +302,62 @@ def clean_files(file_list):
         except Exception as e:
             logger.warning(f"⚠️ Could not delete {f}: {e}")
 
+def load_yolo_model():
+    """Load YOLO model with robust error handling and caching"""
+    try:
+        # First, try to load from local cache
+        cache_dir = os.path.expanduser("~/.cache/ultralytics")
+        model_cache_path = os.path.join(cache_dir, "yolov8n.pt")
+        
+        if os.path.exists(model_cache_path):
+            logger.info(f"📦 Loading YOLO model from cache: {model_cache_path}")
+            return YOLO(model_cache_path)
+        
+        # Try to create cache directory
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Try to download to local project directory first
+        local_model_path = os.path.join(BASE_DIR, "models", "yolov8n.pt")
+        os.makedirs(os.path.dirname(local_model_path), exist_ok=True)
+        
+        if os.path.exists(local_model_path):
+            logger.info(f"📦 Loading YOLO model from local path: {local_model_path}")
+            return YOLO(local_model_path)
+        
+        # Try to download model with retries
+        logger.info("📦 Downloading YOLO model: yolov8n.pt")
+        for attempt in range(3):
+            try:
+                model = YOLO('yolov8n.pt')
+                
+                # Try to save a copy locally for future use
+                try:
+                    import shutil
+                    if os.path.exists(model_cache_path):
+                        shutil.copy2(model_cache_path, local_model_path)
+                        logger.info(f"💾 Saved model copy to: {local_model_path}")
+                except Exception as e:
+                    logger.debug(f"Could not save local model copy: {e}")
+                
+                return model
+                
+            except Exception as e:
+                logger.warning(f"❌ Download attempt {attempt + 1}/3 failed: {e}")
+                if attempt < 2:
+                    logger.info(f"⏳ Retrying in {(attempt + 1) * 5} seconds...")
+                    time.sleep((attempt + 1) * 5)
+                else:
+                    raise e
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to load YOLO model: {e}")
+        logger.error("💡 Possible solutions:")
+        logger.error("   1. Check internet connection")
+        logger.error("   2. Download model manually: wget https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt")
+        logger.error(f"   3. Place model file in: {os.path.join(BASE_DIR, 'models', 'yolov8n.pt')}")
+        logger.error("   4. Disable person detection: ENABLE_PERSON_DETECTION=false")
+        raise e
+
 def analyze_video_for_persons(video_path):
     """Analyze video for person detection and send alerts"""
     if not DETECTION_AVAILABLE:
@@ -309,14 +365,8 @@ def analyze_video_for_persons(video_path):
         return []
     
     try:
-        # Try to load model from cache first
-        model_path = os.path.expanduser("~/.cache/ultralytics/yolov8n.pt")
-        if os.path.exists(model_path):
-            logger.info(f"📦 Loading YOLO model from cache: {model_path}")
-            model = YOLO(model_path)
-        else:
-            logger.info("📦 Loading YOLO model: yolov8n.pt")
-            model = YOLO('yolov8n.pt')
+        # Load model with robust error handling
+        model = load_yolo_model()
         
         logger.info("✅ Person detection model loaded")
         

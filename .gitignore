@@ -12,6 +12,7 @@ watcher.egg-info/
 logs/
 videos/
 merged/
+models/
 
 # Конфигурация (секреты)
 .env
