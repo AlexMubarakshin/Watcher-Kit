@@ -39,6 +39,8 @@ PERSON_DETECT_MAX_AGE_HOURS = int(os.getenv("PERSON_DETECT_MAX_AGE_HOURS", "24")
 
 # Настройки Telegram
 TELEGRAM_SCREENSHOT_DELAY = int(os.getenv("TELEGRAM_SCREENSHOT_DELAY", "3"))
+TELEGRAM_BATCH_SIZE = int(os.getenv("TELEGRAM_BATCH_SIZE", "5"))
+TELEGRAM_BATCH_TIMEOUT = int(os.getenv("TELEGRAM_BATCH_TIMEOUT", "30"))
 
 # Настройки отладки
 CAPTURE_DEBUG_PREVIEW = os.getenv("CAPTURE_DEBUG_PREVIEW", "false").lower() == "true"

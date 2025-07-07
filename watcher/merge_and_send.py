@@ -8,7 +8,7 @@ import time
 from .config import (VIDEO_DIR, MERGED_DIR, LOG_DIR, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, 
                     MAX_FILE_SIZE_MB, BASE_DIR, ENABLE_PERSON_DETECTION, 
                     PERSON_DETECT_CONFIDENCE, PERSON_DETECT_COOLDOWN, PERSON_DETECT_MAX_AGE_HOURS,
-                    TELEGRAM_SCREENSHOT_DELAY)
+                    TELEGRAM_SCREENSHOT_DELAY, TELEGRAM_BATCH_SIZE, TELEGRAM_BATCH_TIMEOUT)
 from .logger import setup_logger, notify_telegram
 from .locale import _
 from .notifications import check_storage_space, notify_file_sent
@@ -339,6 +339,7 @@ def analyze_video_for_persons(video_path):
         frame_count = 0
         sent_screenshots = []
         last_alert_time = 0  # Track when we last sent an alert
+        batch_count = 0  # Track screenshots in current batch
         
         while True:
             ret, frame = cap.read()
@@ -382,11 +383,18 @@ def analyze_video_for_persons(video_path):
                                 if send_detection_to_telegram(screenshot_path, persons, video_path, timestamp):
                                     sent_screenshots.append(screenshot_path)
                                     last_alert_time = timestamp  # Update last alert time
-                                    logger.info(f"📤 Detection alert sent: {os.path.basename(screenshot_path)}")
+                                    batch_count += 1
+                                    logger.info(f"📤 Detection alert sent: {os.path.basename(screenshot_path)} (batch: {batch_count}/{TELEGRAM_BATCH_SIZE})")
                                     
-                                    # Add delay to prevent Telegram rate limiting
-                                    logger.debug(f"⏳ Waiting {TELEGRAM_SCREENSHOT_DELAY}s to prevent Telegram rate limiting...")
-                                    time.sleep(TELEGRAM_SCREENSHOT_DELAY)
+                                    # Check if we've reached the batch size limit
+                                    if batch_count >= TELEGRAM_BATCH_SIZE:
+                                        logger.info(f"⏸️ Batch size limit reached ({TELEGRAM_BATCH_SIZE}), applying batch timeout of {TELEGRAM_BATCH_TIMEOUT}s...")
+                                        time.sleep(TELEGRAM_BATCH_TIMEOUT)
+                                        batch_count = 0  # Reset batch counter
+                                    else:
+                                        # Add regular delay to prevent Telegram rate limiting
+                                        logger.debug(f"⏳ Waiting {TELEGRAM_SCREENSHOT_DELAY}s to prevent Telegram rate limiting...")
+                                        time.sleep(TELEGRAM_SCREENSHOT_DELAY)
                                 else:
                                     logger.warning(f"⚠️ Failed to send detection alert: {os.path.basename(screenshot_path)}")
                         else:
@@ -408,8 +416,16 @@ def analyze_video_for_persons(video_path):
                 logger.info(f"⏰ Suppressed {suppressed} alerts due to cooldown period")
             
             if len(sent_screenshots) > 0:
-                total_delay = len(sent_screenshots) * TELEGRAM_SCREENSHOT_DELAY
-                logger.info(f"⏳ Total rate limiting delay: {total_delay}s ({len(sent_screenshots)} alerts × {TELEGRAM_SCREENSHOT_DELAY}s)")
+                # Calculate total delays including batch timeouts
+                regular_delays = len(sent_screenshots) * TELEGRAM_SCREENSHOT_DELAY
+                batch_timeouts = (len(sent_screenshots) // TELEGRAM_BATCH_SIZE) * TELEGRAM_BATCH_TIMEOUT
+                total_delay = regular_delays + batch_timeouts
+                
+                logger.info(f"⏳ Total rate limiting delay: {total_delay}s")
+                logger.info(f"   - Regular delays: {regular_delays}s ({len(sent_screenshots)} alerts × {TELEGRAM_SCREENSHOT_DELAY}s)")
+                if batch_timeouts > 0:
+                    batches = len(sent_screenshots) // TELEGRAM_BATCH_SIZE
+                    logger.info(f"   - Batch timeouts: {batch_timeouts}s ({batches} batches × {TELEGRAM_BATCH_TIMEOUT}s)")
         else:
             logger.info("👤 No persons detected in video")
         
