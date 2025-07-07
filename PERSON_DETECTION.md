@@ -54,12 +54,36 @@ python test_person_detection.py
 Add these settings to your `.env` file:
 
 ```bash
-# Person Detection Settings
-ENABLE_PERSON_DETECTION=true           # Enable detection during video capture
-PERSON_DETECT_CONFIDENCE=0.5        # Detection confidence (0.0-1.0)
-PERSON_DETECT_COOLDOWN=10           # Seconds between alerts
-PERSON_DETECT_MAX_AGE_HOURS=24      # Hours before screenshot cleanup
+# Enable person detection
+ENABLE_PERSON_DETECTION=true
+
+# Detection sensitivity (0.1 = very sensitive, 0.9 = very strict)
+PERSON_DETECT_CONFIDENCE=0.5
+
+# Cooldown between alerts in seconds (prevents spam)
+PERSON_DETECT_COOLDOWN=10
+
+# Telegram settings for detection alerts
+TELEGRAM_SCREENSHOT_DELAY=3          # Delay between individual sends (legacy)
+TELEGRAM_BATCH_TIMEOUT=30            # Delay between media groups
+TELEGRAM_MEDIA_GROUP_SIZE=10         # Images per media group (max 10)
+
+# Cleanup settings
+PERSON_DETECT_MAX_AGE_HOURS=24      # Auto-delete old screenshots
 ```
+
+### Media Group Sending
+
+The system now sends detection screenshots as **media groups** instead of individual messages:
+
+- **Efficiency**: Up to 10 images per message (vs 1 image per message)
+- **Less spam**: Fewer notifications in your Telegram chat
+- **Better organization**: Related detections grouped together
+- **Faster sending**: Reduced API calls and rate limiting
+
+**Example**: If 25 people are detected in a video:
+- **Old method**: 25 separate messages with individual images
+- **New method**: 3 media group messages (10 + 10 + 5 images)
 
 ## How It Works
 

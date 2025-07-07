@@ -1,5 +1,10 @@
 # Quick Troubleshooting Reference
 
+## 🧪 Test Media Group Feature
+```bash
+python test_media_group.py
+```
+
 ## ❌ Error: `No module named '_lzma'`
 ```bash
 ./setup_enhanced_python.sh

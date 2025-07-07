@@ -5,10 +5,12 @@ import datetime
 import subprocess
 import requests
 import time
+import json
 from .config import (VIDEO_DIR, MERGED_DIR, LOG_DIR, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, 
                     MAX_FILE_SIZE_MB, BASE_DIR, ENABLE_PERSON_DETECTION, 
                     PERSON_DETECT_CONFIDENCE, PERSON_DETECT_COOLDOWN, PERSON_DETECT_MAX_AGE_HOURS,
-                    TELEGRAM_SCREENSHOT_DELAY, TELEGRAM_BATCH_SIZE, TELEGRAM_BATCH_TIMEOUT)
+                    TELEGRAM_SCREENSHOT_DELAY, TELEGRAM_BATCH_SIZE, TELEGRAM_BATCH_TIMEOUT,
+                    TELEGRAM_MEDIA_GROUP_SIZE)
 from .logger import setup_logger, notify_telegram
 from .locale import _
 from .notifications import check_storage_space, notify_file_sent
@@ -409,9 +411,8 @@ def analyze_video_for_persons(video_path):
         sample_interval = fps * 3 if fps > 0 else 90  # Every 3 seconds
         detections = []
         frame_count = 0
-        sent_screenshots = []
+        pending_screenshots = []  # Store screenshots to send in groups
         last_alert_time = 0  # Track when we last sent an alert
-        batch_count = 0  # Track screenshots in current batch
         
         while True:
             ret, frame = cap.read()
@@ -446,29 +447,33 @@ def analyze_video_for_persons(video_path):
                         detections.extend(persons)
                         logger.debug(f"👥 Found {len(persons)} person(s) at {timestamp:.1f}s")
                         
-                        # Check cooldown before sending alert
+                        # Check cooldown before saving screenshot
                         time_since_last_alert = timestamp - last_alert_time
                         if time_since_last_alert >= PERSON_DETECT_COOLDOWN:
-                            # Save screenshot and send to Telegram
+                            # Save screenshot for later group sending
                             screenshot_path = save_detection_screenshot(frame, persons, timestamp, video_path)
                             if screenshot_path:
-                                if send_detection_to_telegram(screenshot_path, persons, video_path, timestamp):
-                                    sent_screenshots.append(screenshot_path)
-                                    last_alert_time = timestamp  # Update last alert time
-                                    batch_count += 1
-                                    logger.info(f"📤 Detection alert sent: {os.path.basename(screenshot_path)} (batch: {batch_count}/{TELEGRAM_BATCH_SIZE})")
+                                screenshot_data = {
+                                    'path': screenshot_path,
+                                    'persons': persons,
+                                    'timestamp': timestamp,
+                                    'video_path': video_path
+                                }
+                                pending_screenshots.append(screenshot_data)
+                                last_alert_time = timestamp  # Update last alert time
+                                logger.debug(f"� Screenshot saved for group sending: {os.path.basename(screenshot_path)} ({len(pending_screenshots)} pending)")
+                                
+                                # Send in groups of configurable size (Telegram media group limit is 10)
+                                if len(pending_screenshots) >= TELEGRAM_MEDIA_GROUP_SIZE:
+                                    logger.info(f"📤 Sending group of {len(pending_screenshots)} detection alerts...")
+                                    sent_count = send_detection_media_group(pending_screenshots)
+                                    if sent_count > 0:
+                                        logger.info(f"✅ Sent {sent_count} detection alerts in media group")
+                                    pending_screenshots = []  # Clear sent screenshots
                                     
-                                    # Check if we've reached the batch size limit
-                                    if batch_count >= TELEGRAM_BATCH_SIZE:
-                                        logger.info(f"⏸️ Batch size limit reached ({TELEGRAM_BATCH_SIZE}), applying batch timeout of {TELEGRAM_BATCH_TIMEOUT}s...")
-                                        time.sleep(TELEGRAM_BATCH_TIMEOUT)
-                                        batch_count = 0  # Reset batch counter
-                                    else:
-                                        # Add regular delay to prevent Telegram rate limiting
-                                        logger.debug(f"⏳ Waiting {TELEGRAM_SCREENSHOT_DELAY}s to prevent Telegram rate limiting...")
-                                        time.sleep(TELEGRAM_SCREENSHOT_DELAY)
-                                else:
-                                    logger.warning(f"⚠️ Failed to send detection alert: {os.path.basename(screenshot_path)}")
+                                    # Apply batch timeout after sending a full group
+                                    logger.debug(f"⏳ Waiting {TELEGRAM_BATCH_TIMEOUT}s after sending media group...")
+                                    time.sleep(TELEGRAM_BATCH_TIMEOUT)
                         else:
                             logger.debug(f"⏰ Cooldown active: {time_since_last_alert:.1f}s < {PERSON_DETECT_COOLDOWN}s, skipping alert")
                 
@@ -477,27 +482,34 @@ def analyze_video_for_persons(video_path):
         
         cap.release()
         
+        # Send any remaining screenshots that didn't fill a complete group
+        sent_screenshots = []
+        if pending_screenshots:
+            logger.info(f"📤 Sending final group of {len(pending_screenshots)} detection alerts...")
+            sent_count = send_detection_media_group(pending_screenshots)
+            if sent_count > 0:
+                logger.info(f"✅ Sent {sent_count} detection alerts in final media group")
+                # Collect paths for cleanup
+                sent_screenshots = [screenshot['path'] for screenshot in pending_screenshots[:sent_count]]
+        
         # Summary
         if detections:
             unique_timestamps = set(d['timestamp'] for d in detections)
+            total_screenshots = len([s for s in pending_screenshots]) + len(sent_screenshots)
             logger.info(f"🎯 Person detection complete: {len(detections)} detections across {len(unique_timestamps)} time points")
-            logger.info(f"📤 Sent {len(sent_screenshots)} detection alerts (cooldown: {PERSON_DETECT_COOLDOWN}s, delay: {TELEGRAM_SCREENSHOT_DELAY}s)")
+            logger.info(f"📤 Sent {len(sent_screenshots)} detection alerts in media groups")
             
             if len(sent_screenshots) < len(unique_timestamps):
                 suppressed = len(unique_timestamps) - len(sent_screenshots)
                 logger.info(f"⏰ Suppressed {suppressed} alerts due to cooldown period")
             
             if len(sent_screenshots) > 0:
-                # Calculate total delays including batch timeouts
-                regular_delays = len(sent_screenshots) * TELEGRAM_SCREENSHOT_DELAY
-                batch_timeouts = (len(sent_screenshots) // TELEGRAM_BATCH_SIZE) * TELEGRAM_BATCH_TIMEOUT
-                total_delay = regular_delays + batch_timeouts
+                # Calculate media group delays (much fewer than individual messages)
+                media_groups = (len(sent_screenshots) + TELEGRAM_MEDIA_GROUP_SIZE - 1) // TELEGRAM_MEDIA_GROUP_SIZE  # Round up
+                total_delay = media_groups * TELEGRAM_BATCH_TIMEOUT
                 
-                logger.info(f"⏳ Total rate limiting delay: {total_delay}s")
-                logger.info(f"   - Regular delays: {regular_delays}s ({len(sent_screenshots)} alerts × {TELEGRAM_SCREENSHOT_DELAY}s)")
-                if batch_timeouts > 0:
-                    batches = len(sent_screenshots) // TELEGRAM_BATCH_SIZE
-                    logger.info(f"   - Batch timeouts: {batch_timeouts}s ({batches} batches × {TELEGRAM_BATCH_TIMEOUT}s)")
+                logger.info(f"⏳ Total media group delay: {total_delay}s ({media_groups} groups × {TELEGRAM_BATCH_TIMEOUT}s)")
+                logger.info(f"📊 Efficiency: {len(sent_screenshots)} images in {media_groups} messages (vs {len(sent_screenshots)} individual messages)")
         else:
             logger.info("👤 No persons detected in video")
         
@@ -556,47 +568,94 @@ def save_detection_screenshot(frame, persons, timestamp, video_path):
         logger.error(f"❌ Failed to save detection screenshot: {e}")
         return None
 
-def send_detection_to_telegram(image_path, persons, video_path, timestamp):
-    """Send detection screenshot to Telegram"""
+def send_detection_media_group(screenshots_data):
+    """Send detection screenshots as a media group (up to 10 images per message)"""
     try:
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
             logger.warning("⚠️ Telegram credentials not configured for detection alerts")
-            return False
+            return 0
             
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        if not screenshots_data:
+            return 0
+            
+        # Telegram media group limit is 10 items, use configured size
+        screenshots_to_send = screenshots_data[:min(TELEGRAM_MEDIA_GROUP_SIZE, 10)]
         
-        # Create caption
-        detection_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        caption = f"🚨 Person Detection Alert!\n"
-        caption += f"⏰ Analysis time: {detection_time}\n"
-        caption += f"👥 Persons detected: {len(persons)}\n"
-        caption += f"📹 Video: {os.path.basename(video_path)}\n"
-        caption += f"⏱️ Video timestamp: {timestamp:.1f}s\n"
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMediaGroup"
         
-        for i, person in enumerate(persons, 1):
-            confidence = person['confidence']
-            caption += f"Person {i}: {confidence:.1%} confidence\n"
+        # Create media group data
+        media_group = []
+        files_data = {}
         
-        with open(image_path, 'rb') as f:
-            response = requests.post(
-                url,
-                data={
-                    'chat_id': TELEGRAM_CHAT_ID,
-                    'caption': caption
-                },
-                files={'photo': f},
-                timeout=30
-            )
+        for i, screenshot in enumerate(screenshots_to_send):
+            image_path = screenshot['path']
+            persons = screenshot['persons']
+            timestamp = screenshot['timestamp']
+            video_path = screenshot['video_path']
+            
+            # Create caption for this image
+            caption = ""
+            if i == 0:  # Only add detailed caption to first image
+                detection_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                total_persons = sum(len(s['persons']) for s in screenshots_to_send)
+                caption = f"🚨 Person Detection Alert!\n"
+                caption += f"⏰ Analysis time: {detection_time}\n"
+                caption += f"👥 Total persons detected: {total_persons}\n"
+                caption += f"📹 Video: {os.path.basename(video_path)}\n"
+                caption += f"📸 Screenshots: {len(screenshots_to_send)}\n"
+            
+            # Create individual image caption with timestamp and confidence
+            img_caption = f"t={timestamp:.1f}s"
+            for j, person in enumerate(persons, 1):
+                confidence = person['confidence']
+                img_caption += f" P{j}:{confidence:.1%}"
+            
+            if caption:
+                img_caption = caption + f"\n📸 {i+1}: " + img_caption
+            else:
+                img_caption = f"📸 {i+1}: " + img_caption
+            
+            # Prepare media item
+            file_key = f"photo_{i}"
+            media_item = {
+                "type": "photo",
+                "media": f"attach://{file_key}"
+            }
+            
+            # Add caption to first item only (Telegram limitation)
+            if i == 0:
+                media_item["caption"] = img_caption
+            
+            media_group.append(media_item)
+            
+            # Read file for upload
+            with open(image_path, 'rb') as f:
+                files_data[file_key] = f.read()
+        
+        # Prepare the request
+        data = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'media': json.dumps(media_group)
+        }
+        
+        # Prepare files for upload
+        files = {}
+        for file_key, file_data in files_data.items():
+            files[file_key] = ("image.jpg", file_data, "image/jpeg")
+        
+        # Send the media group
+        response = requests.post(url, data=data, files=files, timeout=60)
         
         if response.ok:
-            logger.debug(f"✅ Detection alert sent to Telegram: {os.path.basename(image_path)}")
-            return True
+            logger.debug(f"✅ Media group sent to Telegram: {len(screenshots_to_send)} images")
+            return len(screenshots_to_send)
         else:
-            logger.error(f"❌ Failed to send detection to Telegram: {response.text}")
-            return False
+            logger.error(f"❌ Failed to send media group to Telegram: {response.text}")
+            return 0
+            
     except Exception as e:
-        logger.error(f"❌ Telegram detection send error: {e}")
-        return False
+        logger.error(f"❌ Telegram media group send error: {e}")
+        return 0
 
 def cleanup_old_screenshots():
     """Clean up old detection screenshots based on PERSON_DETECT_MAX_AGE_HOURS"""
