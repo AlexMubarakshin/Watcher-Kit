@@ -1,13 +1,13 @@
 # Person Detection Feature
 
-The Watcher system includes an AI-powered person detection feature that can monitor your camera feed in real-time and send alerts to Telegram when people are detected.
+The Watcher system includes an AI-powered person detection feature that runs **integrated with video capture**. This means you can record video while simultaneously detecting people and sending alerts to Telegram - all using the same camera stream efficiently.
 
 ## Features
 
 - 🤖 **AI-Powered Detection**: Uses YOLOv8 for accurate person detection
 - 📸 **Smart Screenshots**: Automatically captures and annotates images when people are detected
 - 📱 **Telegram Alerts**: Sends detection alerts with screenshots to your Telegram chat
-- ⚡ **Real-time Processing**: Live video stream analysis
+- ⚡ **Integrated Processing**: Runs alongside video capture using the same camera
 - 🎯 **Configurable Sensitivity**: Adjustable confidence thresholds
 - 🕐 **Smart Cooldowns**: Prevents spam by limiting alert frequency
 - 🧹 **Auto Cleanup**: Automatically removes old screenshots
@@ -26,30 +26,23 @@ The Watcher system includes an AI-powered person detection feature that can moni
 
 ## Usage
 
-### Quick Test
+### Enable Integrated Detection
+Add to your `.env` file:
 ```bash
-# Test with preview window (look for a person in the camera view)
-python person_detect.py --test --preview
+ENABLE_PERSON_DETECTION=true
 ```
 
-### Normal Operation
+### Run Video Capture with Detection
 ```bash
-# Run for 30 minutes with live preview
-python person_detect.py --duration 30 --preview
-
-# Run for 1 hour in background
-python person_detect.py --duration 60
+# Regular capture command now includes detection if enabled
+watcher-capture
 ```
 
-### Command Line Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--duration X` | Run for X minutes | 60 |
-| `--preview` | Show live preview window | Off |
-| `--confidence X` | Detection confidence (0.0-1.0) | 0.5 |
-| `--cooldown X` | Seconds between alerts | 10 |
-| `--test` | Test mode - single detection and exit | Off |
+### Test Detection Only
+```bash
+# Test with preview window
+python test_person_detection.py
+```
 
 ## Configuration
 
@@ -57,6 +50,7 @@ Add these settings to your `.env` file:
 
 ```bash
 # Person Detection Settings
+ENABLE_PERSON_DETECTION=true           # Enable detection during video capture
 PERSON_DETECT_CONFIDENCE=0.5        # Detection confidence (0.0-1.0)
 PERSON_DETECT_COOLDOWN=10           # Seconds between alerts
 PERSON_DETECT_MAX_AGE_HOURS=24      # Hours before screenshot cleanup
@@ -64,12 +58,13 @@ PERSON_DETECT_MAX_AGE_HOURS=24      # Hours before screenshot cleanup
 
 ## How It Works
 
-1. **Video Capture**: Connects to your camera (same as regular video recording)
-2. **AI Analysis**: Each frame is analyzed by the YOLOv8 model
-3. **Person Detection**: When a person is detected with sufficient confidence
-4. **Screenshot Creation**: Captures the frame with bounding boxes and labels
-5. **Telegram Alert**: Sends the annotated screenshot to your Telegram chat
-6. **Cooldown**: Waits for the configured cooldown period before next alert
+1. **Video Capture**: Records video using ffmpeg as normal
+2. **Parallel Detection**: Runs AI detection in a separate thread
+3. **Shared Camera**: Both processes use the same camera efficiently
+4. **Person Detection**: When a person is detected with sufficient confidence
+5. **Screenshot Creation**: Captures the frame with bounding boxes and labels
+6. **Telegram Alert**: Sends the annotated screenshot to your Telegram chat
+7. **Cooldown**: Waits for the configured cooldown period before next alert
 
 ## Telegram Alert Format
 
@@ -78,9 +73,9 @@ When a person is detected, you'll receive a message like:
 ```
 🚨 Person Detection Alert!
 ⏰ Time: 2025-07-07 15:30:45
-👥 Persons detected: 2
+👥 Persons detected: 1
+📹 During video capture session
 Person 1: 87% confidence
-Person 2: 72% confidence
 ```
 
 ## File Management
@@ -92,38 +87,40 @@ Person 2: 72% confidence
 ## Performance Notes
 
 - **First Run**: Downloads YOLOv8 model (~6MB) - this only happens once
-- **CPU Usage**: Moderate CPU usage during detection
-- **Memory**: ~200-500MB RAM depending on video resolution
-- **Accuracy**: YOLOv8 nano model provides good balance of speed and accuracy
+- **CPU Usage**: Moderate additional CPU usage during detection
+- **Memory**: +200-500MB RAM for AI model
+- **Efficiency**: Much more efficient than separate detection processes
 
 ## Troubleshooting
 
-### "No module named 'cv2'"
+### "Person detection enabled but dependencies not available"
 ```bash
 ./install_person_detection.sh
 ```
 
-### "Cannot open camera"
+### "Cannot open camera for detection"
 ```bash
 python test_person_detection.py
 ```
 
 ### Poor Detection Accuracy
-- Lower confidence threshold: `--confidence 0.3`
+- Lower confidence threshold: `PERSON_DETECT_CONFIDENCE=0.3`
 - Ensure good lighting
 - Check camera positioning
 
 ### Too Many Alerts
-- Increase cooldown: `--cooldown 30`
-- Increase confidence: `--confidence 0.7`
+- Increase cooldown: `PERSON_DETECT_COOLDOWN=30`
+- Increase confidence: `PERSON_DETECT_CONFIDENCE=0.7`
 
-## Integration with Main System
+## Integration Benefits
 
-The person detection runs independently of the main video recording system. You can:
+The integrated detection system provides several advantages:
 
-- Run person detection while regular video recording is active
-- Use the same camera for both systems
-- Configure different settings for each system
+- ✅ **No Camera Conflicts**: Single camera access for both video and detection
+- ✅ **Efficient Processing**: Shared resources between video capture and detection
+- ✅ **Unified Configuration**: All settings in one place
+- ✅ **Automatic Operation**: Works with existing scheduled video capture
+- ✅ **Seamless Integration**: Compatible with all existing features
 
 ## Privacy and Security
 

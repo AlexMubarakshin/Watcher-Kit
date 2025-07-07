@@ -6,9 +6,23 @@ import datetime
 import os
 import signal
 import sys
-from .config import VIDEO_DIR, LOG_DIR, CAMERA_DEVICE, DURATION, RESOLUTION, FPS, SHOW_TIMESTAMP, TIMESTAMP_POSITION, TIMESTAMP_FONT_SIZE
+import threading
+import time
+from .config import (VIDEO_DIR, LOG_DIR, CAMERA_DEVICE, DURATION, RESOLUTION, FPS, 
+                    SHOW_TIMESTAMP, TIMESTAMP_POSITION, TIMESTAMP_FONT_SIZE,
+                    CAPTURE_DEBUG_PREVIEW)
 from .logger import setup_logger
 from .locale import _
+
+# Optional debug preview imports
+try:
+    import os
+    # Set OpenCV environment variable before importing cv2
+    os.environ['OPENCV_AVFOUNDATION_SKIP_AUTH'] = '1'
+    import cv2
+    PREVIEW_AVAILABLE = True
+except ImportError:
+    PREVIEW_AVAILABLE = False
 
 logger = setup_logger("capture", os.path.join(LOG_DIR, "capture.log"))
 
@@ -16,13 +30,20 @@ logger = setup_logger("capture", os.path.join(LOG_DIR, "capture.log"))
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
-# Global variable to track current ffmpeg process
+# Global variable to track current ffmpeg process and preview thread
 current_process = None
+preview_thread = None
+stop_detection = threading.Event()
 
 def signal_handler(signum, frame):
     """Handle termination signals to ensure clean video file closure"""
-    global current_process
+    global current_process, preview_thread
     logger.info(f"📡 Received signal {signum}, attempting graceful shutdown...")
+    
+    # Stop preview thread if running
+    if preview_thread and preview_thread.is_alive():
+        stop_detection.set()
+        preview_thread.join(timeout=5)
     
     if current_process and current_process.poll() is None:
         logger.info("🛑 Stopping ffmpeg process gracefully...")
@@ -156,7 +177,7 @@ def get_preferred_camera():
         return "0"  # Default fallback
 
 def capture():
-    global current_process
+    global current_process, preview_thread
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = os.path.join(VIDEO_DIR, f"video_{timestamp}.mp4")
 
@@ -165,6 +186,17 @@ def capture():
         camera_device = get_preferred_camera()
     else:
         camera_device = CAMERA_DEVICE
+
+    # Start debug preview thread if enabled (no conflicts with ffmpeg)
+    if CAPTURE_DEBUG_PREVIEW and PREVIEW_AVAILABLE:
+        logger.info("📺 Starting debug preview window")
+        stop_detection.clear()
+        preview_thread = threading.Thread(target=preview_worker, args=(camera_device,))
+        preview_thread.daemon = True
+        preview_thread.start()
+    elif CAPTURE_DEBUG_PREVIEW and not PREVIEW_AVAILABLE:
+        logger.warning("⚠️ Debug preview enabled but OpenCV not available")
+        logger.warning("💡 Run: ./fix_person_detection.sh to install OpenCV")
 
     # Base ffmpeg command
     cmd = [
@@ -190,7 +222,15 @@ def capture():
     cmd.extend(["-y", output_path])
 
     try:
-        logger.info(f"🎬 Starting video capture: {output_path}")
+        features = []
+        if CAPTURE_DEBUG_PREVIEW and PREVIEW_AVAILABLE:
+            features.append("debug preview")
+        
+        if features:
+            logger.info(f"🎬 Starting video capture with {' + '.join(features)}: {output_path}")
+        else:
+            logger.info(f"🎬 Starting video capture: {output_path}")
+        
         logger.debug(f"🛠️ ffmpeg command: {' '.join(cmd)}")
         
         current_process = subprocess.Popen(
@@ -229,6 +269,12 @@ def capture():
     except Exception as e:
         logger.exception(f"❌ Video capture failed: {str(e)}")
     finally:
+        # Stop preview thread if running
+        if preview_thread and preview_thread.is_alive():
+            stop_detection.set()
+            preview_thread.join(timeout=5)
+            logger.info("📺 Debug preview stopped")
+        
         current_process = None
 
 def list_devices():
@@ -246,6 +292,75 @@ def list_devices():
         print(result.stderr)  # ffmpeg выводит список устройств в stderr
     except Exception as e:
         print(_("camera_not_found", str(e)))
+
+def preview_worker(camera_device):
+    """Worker thread for debug preview window"""
+    if not PREVIEW_AVAILABLE:
+        logger.warning("⚠️ Debug preview requires OpenCV")
+        return
+    
+    try:
+        logger.info("📺 Starting debug preview window...")
+        
+        # Setup camera for preview
+        cam_id = int(camera_device) if camera_device.isdigit() else 0
+        camera = cv2.VideoCapture(cam_id)
+        
+        if not camera.isOpened():
+            logger.error(f"❌ Cannot open camera for preview: {camera_device}")
+            return
+        
+        # Set camera properties to match recording
+        try:
+            width, height = map(int, RESOLUTION.split('x'))
+            camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            camera.set(cv2.CAP_PROP_FPS, FPS)
+        except:
+            logger.warning("⚠️ Could not set camera properties for preview")
+        
+        logger.info("✅ Debug preview window opened (press 'q' to close preview only)")
+        
+        while not stop_detection.is_set():
+            ret, frame = camera.read()
+            if not ret:
+                logger.warning("⚠️ Failed to read frame for preview")
+                break
+            
+            # Add recording indicator
+            recording_text = "🔴 RECORDING"
+            cv2.putText(frame, recording_text, (10, frame.shape[0] - 20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            
+            # Add timestamp if enabled
+            if SHOW_TIMESTAMP:
+                timestamp_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cv2.putText(frame, timestamp_text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
+            # Add resolution info
+            res_text = f"{frame.shape[1]}x{frame.shape[0]} @ {FPS}fps"
+            cv2.putText(frame, res_text, (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            # Show frame
+            cv2.imshow('Watcher Debug Preview', frame)
+            
+            # Check for quit key (only closes preview, not recording)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                logger.info("🛑 Debug preview closed by user (recording continues)")
+                break
+            
+            # Small delay to prevent excessive CPU usage
+            time.sleep(0.033)  # ~30fps for preview
+        
+        camera.release()
+        cv2.destroyAllWindows()
+        logger.info("📺 Debug preview stopped")
+        
+    except Exception as e:
+        logger.error(f"❌ Preview worker error: {e}")
 
 def main():
     capture()

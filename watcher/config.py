@@ -32,8 +32,15 @@ TIMESTAMP_FONT_SIZE = int(os.getenv("TIMESTAMP_FONT_SIZE", "24"))
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "20"))
 
 # Настройки обнаружения людей
+ENABLE_PERSON_DETECTION = os.getenv("ENABLE_PERSON_DETECTION", "false").lower() == "true"
 PERSON_DETECT_CONFIDENCE = float(os.getenv("PERSON_DETECT_CONFIDENCE", "0.5"))
 PERSON_DETECT_COOLDOWN = int(os.getenv("PERSON_DETECT_COOLDOWN", "10"))
 PERSON_DETECT_MAX_AGE_HOURS = int(os.getenv("PERSON_DETECT_MAX_AGE_HOURS", "24"))
+
+# Настройки Telegram
+TELEGRAM_SCREENSHOT_DELAY = int(os.getenv("TELEGRAM_SCREENSHOT_DELAY", "3"))
+
+# Настройки отладки
+CAPTURE_DEBUG_PREVIEW = os.getenv("CAPTURE_DEBUG_PREVIEW", "false").lower() == "true"
 
 # Для списка доступных камер: ffmpeg -f avfoundation -list_devices true -i ""

@@ -18,3 +18,6 @@ merged/
 
 # macOS
 .DS_Store
+
+videos*/
+screenshots/
