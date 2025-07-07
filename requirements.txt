@@ -1,3 +1,6 @@
 requests
 rumps
 python-dotenv
+opencv-python
+ultralytics
+numpy

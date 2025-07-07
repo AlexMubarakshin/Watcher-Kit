@@ -8,7 +8,10 @@ setup(
     install_requires=[
         "requests",
         "rumps", 
-        "python-dotenv"
+        "python-dotenv",
+        "opencv-python",
+        "ultralytics",
+        "numpy"
     ],
     entry_points={
         "console_scripts": [
@@ -17,7 +20,8 @@ setup(
             "watcher-merge=watcher.merge_and_send:main",
             "watcher-status=watcher.status:main",
             "watcher-devices=watcher.capture_video:list_devices",
-            "watcher-camera-test=watcher.camera_test:main"
+            "watcher-camera-test=watcher.camera_test:main",
+            "watcher-person-detect=watcher.person_detection:main"
         ]
     },
     python_requires=">=3.7",

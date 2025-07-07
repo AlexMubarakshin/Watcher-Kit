@@ -28,4 +28,12 @@ SHOW_TIMESTAMP = os.getenv("SHOW_TIMESTAMP", "true").lower() == "true"
 TIMESTAMP_POSITION = os.getenv("TIMESTAMP_POSITION", "top-right")
 TIMESTAMP_FONT_SIZE = int(os.getenv("TIMESTAMP_FONT_SIZE", "24"))
 
+# Максимальный размер файла для отправки в Telegram (MB)
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "20"))
+
+# Настройки обнаружения людей
+PERSON_DETECT_CONFIDENCE = float(os.getenv("PERSON_DETECT_CONFIDENCE", "0.5"))
+PERSON_DETECT_COOLDOWN = int(os.getenv("PERSON_DETECT_COOLDOWN", "10"))
+PERSON_DETECT_MAX_AGE_HOURS = int(os.getenv("PERSON_DETECT_MAX_AGE_HOURS", "24"))
+
 # Для списка доступных камер: ffmpeg -f avfoundation -list_devices true -i ""
