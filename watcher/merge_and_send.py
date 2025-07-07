@@ -21,8 +21,13 @@ try:
     import cv2
     from ultralytics import YOLO
     DETECTION_AVAILABLE = True
-except ImportError:
+    DETECTION_ERROR = None
+except ImportError as e:
     DETECTION_AVAILABLE = False
+    DETECTION_ERROR = str(e)
+except Exception as e:
+    DETECTION_AVAILABLE = False
+    DETECTION_ERROR = f"Unexpected error: {str(e)}"
 
 logger = setup_logger("merge_send", os.path.join(LOG_DIR, "merge_send.log"))
 
@@ -361,7 +366,24 @@ def load_yolo_model():
 def analyze_video_for_persons(video_path):
     """Analyze video for person detection and send alerts"""
     if not DETECTION_AVAILABLE:
-        logger.warning("⚠️ Person detection dependencies not available")
+        error_msg = f"⚠️ Person detection dependencies not available: {DETECTION_ERROR}" if DETECTION_ERROR else "⚠️ Person detection dependencies not available"
+        logger.warning(error_msg)
+        
+        # Provide helpful error-specific guidance
+        if DETECTION_ERROR and "_lzma" in DETECTION_ERROR:
+            logger.error("❌ Python LZMA module missing - this is a Python environment issue")
+            logger.error("💡 Possible solutions:")
+            logger.error("   1. Use Python installed via Homebrew: brew install python")
+            logger.error("   2. Use pyenv: pyenv install 3.9.16 && pyenv global 3.9.16")
+            logger.error("   3. Use conda: conda install python")
+            logger.error("   4. Disable person detection: ENABLE_PERSON_DETECTION=false")
+        elif DETECTION_ERROR and ("cv2" in DETECTION_ERROR or "opencv" in DETECTION_ERROR):
+            logger.error("❌ OpenCV not installed properly")
+            logger.error("💡 Run: ./install_person_detection.sh")
+        elif DETECTION_ERROR and "ultralytics" in DETECTION_ERROR:
+            logger.error("❌ YOLOv8 (ultralytics) not installed")
+            logger.error("💡 Run: ./install_person_detection.sh")
+        
         return []
     
     try:

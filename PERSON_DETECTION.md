@@ -117,6 +117,23 @@ python test_person_detection.py
 - Increase cooldown: `PERSON_DETECT_COOLDOWN=30`
 - Increase confidence: `PERSON_DETECT_CONFIDENCE=0.7`
 
+### YOLO Model Download Issues
+If you encounter YOLO model download errors, see [YOLO_TROUBLESHOOTING.md](YOLO_TROUBLESHOOTING.md) for detailed solutions.
+
+### Python Environment Issues
+If you encounter Python-related errors (like `No module named '_lzma'`), see [PYTHON_TROUBLESHOOTING.md](PYTHON_TROUBLESHOOTING.md) for comprehensive solutions.
+
+### Diagnostic Tools
+- **Python diagnostics**: `./diagnose_python.py`
+- **Enhanced setup**: `./setup_enhanced_python.sh`
+- **YOLO model test**: `python test_yolo_model.py`
+
+Common issues and quick fixes:
+- **LZMA module missing**: Run `./setup_enhanced_python.sh`
+- **Network connectivity problems**: Run `./download_yolo_model.sh`
+- **OpenCV issues**: Run `./install_person_detection.sh`
+- **General Python issues**: Run `./diagnose_python.py`
+
 ## Installation Troubleshooting
 
 If you encounter YOLO model download errors, see [YOLO_TROUBLESHOOTING.md](YOLO_TROUBLESHOOTING.md) for detailed solutions.
